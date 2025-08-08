@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import string
 import re
 from textblob import TextBlob
@@ -8,15 +9,133 @@ from wordcloud import WordCloud
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import seaborn as sns
+from datetime import datetime
+import warnings
+warnings.filterwarnings('ignore')
 
 # --- Page Configuration ---
 st.set_page_config(
-    page_title="CSV Sentiment Analyzer", 
+    page_title="📊 Sentiment Analytics Dashboard",
+    page_icon="📊",
     layout="wide",
-    page_icon="🧠"
+    initial_sidebar_state="expanded"
 )
 
-# --- Built-in English Stopwords (No NLTK needed) ---
+# --- Custom CSS for Power BI Style ---
+st.markdown("""
+<style>
+    /* Import Google Fonts */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    
+    /* Main container */
+    .main > div {
+        padding: 1rem 2rem;
+    }
+    
+    /* Custom font */
+    html, body, [class*="css"] {
+        font-family: 'Inter', sans-serif;
+    }
+    
+    /* KPI Card Styling */
+    .kpi-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 1.5rem;
+        border-radius: 10px;
+        color: white;
+        text-align: center;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        margin-bottom: 1rem;
+    }
+    
+    .kpi-positive {
+        background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+    }
+    
+    .kpi-negative {
+        background: linear-gradient(135deg, #f44336 0%, #d32f2f 100%);
+    }
+    
+    .kpi-neutral {
+        background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
+    }
+    
+    .kpi-total {
+        background: linear-gradient(135deg, #2196F3 0%, #1976d2 100%);
+    }
+    
+    .kpi-number {
+        font-size: 2.5rem;
+        font-weight: 700;
+        margin: 0;
+    }
+    
+    .kpi-label {
+        font-size: 0.9rem;
+        opacity: 0.9;
+        margin: 0;
+    }
+    
+    /* Header styling */
+    .dashboard-header {
+        background: linear-gradient(90deg, #1e3c72 0%, #2a5298 100%);
+        padding: 2rem;
+        border-radius: 10px;
+        color: white;
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+    
+    .dashboard-title {
+        font-size: 2.5rem;
+        font-weight: 700;
+        margin: 0;
+    }
+    
+    .dashboard-subtitle {
+        font-size: 1.1rem;
+        opacity: 0.9;
+        margin: 0.5rem 0 0 0;
+    }
+    
+    /* Metric cards */
+    .metric-card {
+        background: white;
+        padding: 1.5rem;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        border-left: 4px solid #2196F3;
+    }
+    
+    /* Sidebar styling */
+    .css-1d391kg {
+        background-color: #f8f9fa;
+    }
+    
+    /* Chart containers */
+    .chart-container {
+        background: white;
+        padding: 1.5rem;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin-bottom: 1rem;
+    }
+    
+    /* Filter section */
+    .filter-section {
+        background: #f8f9fa;
+        padding: 1rem;
+        border-radius: 8px;
+        margin-bottom: 1rem;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# --- Built-in English Stopwords ---
 ENGLISH_STOPWORDS = {
     'i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'ourselves', 'you', 'your', 'yours', 
     'yourself', 'yourselves', 'he', 'him', 'his', 'himself', 'she', 'her', 'hers', 
@@ -39,14 +158,12 @@ def check_password():
     """Returns True if the user has correct credentials."""
     
     def password_entered():
-        """Checks whether a password entered by the user is correct."""
         try:
             if (
                 st.session_state["username"] == st.secrets["auth"]["username"]
                 and st.session_state["password"] == st.secrets["auth"]["password"]
             ):
                 st.session_state["password_correct"] = True
-                # Clean up sensitive data
                 del st.session_state["password"]
                 del st.session_state["username"]
             else:
@@ -55,133 +172,99 @@ def check_password():
             st.error("❌ Authentication not configured. Please contact administrator.")
             st.session_state["password_correct"] = False
 
-    # Authentication flow
     if "password_correct" not in st.session_state:
-        st.markdown("## 🔐 Authentication Required")
-        st.text_input("Username", on_change=password_entered, key="username")
-        st.text_input("Password", type="password", on_change=password_entered, key="password")
+        st.markdown('<div class="dashboard-header"><h1 class="dashboard-title">🔐 Secure Access Required</h1><p class="dashboard-subtitle">Please enter your credentials to access the dashboard</p></div>', unsafe_allow_html=True)
+        
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.text_input("Username", on_change=password_entered, key="username")
+            st.text_input("Password", type="password", on_change=password_entered, key="password")
         return False
     elif not st.session_state["password_correct"]:
-        st.markdown("## 🔐 Authentication Required") 
-        st.text_input("Username", on_change=password_entered, key="username")
-        st.text_input("Password", type="password", on_change=password_entered, key="password")
-        st.error("❌ Invalid credentials")
+        st.markdown('<div class="dashboard-header"><h1 class="dashboard-title">🔐 Secure Access Required</h1><p class="dashboard-subtitle">Please enter your credentials to access the dashboard</p></div>', unsafe_allow_html=True)
+        
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.text_input("Username", on_change=password_entered, key="username")
+            st.text_input("Password", type="password", on_change=password_entered, key="password")
+            st.error("❌ Invalid credentials")
         return False
     else:
         return True
 
-# Check authentication
 if not check_password():
     st.stop()
 
-# --- Text Processing Functions (No NLTK) ---
+# --- Utility Functions ---
 def simple_tokenize(text):
-    """Simple tokenizer using regex - no NLTK needed"""
     if not text:
         return []
-    
-    # Convert to lowercase and extract words
     text = text.lower()
-    # Find all word characters, keeping contractions together
     tokens = re.findall(r'\b\w+\b', text)
     return tokens
 
 def clean_text(text):
-    """Clean and preprocess text without NLTK"""
     if pd.isna(text) or text is None:
         return ""
-    
     try:
-        # Convert to string and lowercase
         text = str(text).lower()
-        
-        # Remove URLs
         text = re.sub(r'http\S+|www\S+|https\S+', '', text)
-        
-        # Remove email addresses
         text = re.sub(r'\S+@\S+', '', text)
-        
-        # Remove punctuation except apostrophes in contractions
         text = re.sub(r"[^\w\s']", ' ', text)
-        
-        # Remove standalone numbers
         text = re.sub(r'\b\d+\b', '', text)
-        
-        # Remove extra whitespace
         text = ' '.join(text.split())
-        
         return text.strip()
     except Exception as e:
-        st.error(f"Error cleaning text: {e}")
         return ""
 
 def remove_stopwords(text, custom_stopwords):
-    """Remove stopwords without NLTK"""
     if not text or text.strip() == "":
         return ""
-    
     try:
         tokens = simple_tokenize(text)
-        # Filter out stopwords and very short words
         filtered_tokens = [
             token for token in tokens 
             if token not in custom_stopwords and len(token) > 2
         ]
         return ' '.join(filtered_tokens)
     except Exception as e:
-        st.error(f"Error removing stopwords: {e}")
         return text
 
 def analyze_textblob(text):
-    """Analyze sentiment using TextBlob"""
     try:
         if not text or text.strip() == "":
             return 0.0, 0.0, "neutral"
-        
         blob = TextBlob(text)
         polarity = float(blob.polarity)
         subjectivity = float(blob.subjectivity)
-        
-        # Determine sentiment with thresholds
         if polarity > 0.1:
             sentiment = "positive"
         elif polarity < -0.1:
             sentiment = "negative"
         else:
             sentiment = "neutral"
-            
         return polarity, subjectivity, sentiment
-        
     except Exception as e:
-        st.error(f"TextBlob analysis error: {e}")
         return 0.0, 0.0, "neutral"
 
 def analyze_vader(text):
-    """Analyze sentiment using VADER"""
     try:
         if not text or text.strip() == "":
             return {'compound': 0.0, 'pos': 0.0, 'neu': 1.0, 'neg': 0.0}, "neutral"
-        
         analyzer = SentimentIntensityAnalyzer()
         scores = analyzer.polarity_scores(text)
         compound = scores['compound']
-        
-        # Determine sentiment
         if compound >= 0.05:
             sentiment = "positive"
         elif compound <= -0.05:
             sentiment = "negative"
         else:
             sentiment = "neutral"
-            
         return scores, sentiment
-        
     except Exception as e:
-        st.error(f"VADER analysis error: {e}")
         return {'compound': 0.0, 'pos': 0.0, 'neu': 1.0, 'neg': 0.0}, "neutral"
 
 def get_consensus_sentiment(textblob_sent, vader_sent):
-    """Calculate consensus between TextBlob and VADER"""
     if textblob_sent == vader_sent:
         return textblob_sent
     elif "neutral" in [textblob_sent, vader_sent]:
@@ -190,107 +273,248 @@ def get_consensus_sentiment(textblob_sent, vader_sent):
         return "mixed"
 
 def load_stopwords(custom_content=None, use_default=True):
-    """Load stopwords without NLTK dependency"""
     stopwords_set = set()
-    
-    # Add built-in English stopwords
     if use_default:
         stopwords_set.update(ENGLISH_STOPWORDS)
-    
-    # Add custom stopwords
     if custom_content:
         try:
-            # Handle both comma and newline separated formats
             if ',' in custom_content:
                 custom_words = [word.strip().lower() for word in custom_content.split(',')]
             else:
                 custom_words = [word.strip().lower() for word in custom_content.split('\n')]
-            
-            # Filter empty strings
             custom_words = [word for word in custom_words if word]
             stopwords_set.update(custom_words)
-            st.info(f"✅ Added {len(custom_words)} custom stopwords")
         except Exception as e:
-            st.error(f"Error loading custom stopwords: {e}")
-    
+            pass
     return stopwords_set
 
-# --- Main Application ---
-def main():
-    # App header
-    st.title("🧠 CSV Sentiment Analyzer")
-    st.markdown("""
-    **Professional sentiment analysis using TextBlob and VADER** 
+# --- Power BI Style KPI Cards ---
+def create_kpi_card(title, value, card_type="total"):
+    kpi_class = f"kpi-card kpi-{card_type}"
+    return f"""
+    <div class="{kpi_class}">
+        <p class="kpi-number">{value:,}</p>
+        <p class="kpi-label">{title}</p>
+    </div>
+    """
+
+# --- Advanced Visualizations ---
+def create_sentiment_donut_chart(sentiment_counts):
+    """Create a Power BI style donut chart"""
+    colors = {
+        'positive': '#4CAF50',
+        'negative': '#f44336', 
+        'neutral': '#ff9800',
+        'mixed': '#9c27b0'
+    }
     
-    🔹 **No NLTK dependencies** - Fully self-contained  
-    🔹 **Dual sentiment engines** - TextBlob + VADER analysis  
-    🔹 **Custom stopwords** - Upload your own stopwords  
-    🔹 **Category filtering** - Group results by categories  
-    🔹 **Visual insights** - Charts and word clouds  
-    🔹 **Export results** - Download processed data  
-    """)
+    fig = go.Figure(data=[go.Pie(
+        labels=list(sentiment_counts.index),
+        values=list(sentiment_counts.values),
+        hole=0.6,
+        marker=dict(colors=[colors.get(label, '#cccccc') for label in sentiment_counts.index]),
+        textinfo='label+percent',
+        textfont_size=12,
+        hovertemplate='<b>%{label}</b><br>Count: %{value}<br>Percentage: %{percent}<extra></extra>'
+    )])
     
-    # File upload section
-    st.header("📂 Upload Data")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        uploaded_file = st.file_uploader(
-            "📄 Upload CSV file", 
-            type=['csv'],
-            help="Select a CSV file containing text data to analyze"
-        )
-    
-    with col2:
-        stopwords_file = st.file_uploader(
-            "📝 Upload custom stopwords (optional)",
-            type=['txt'], 
-            help="Text file with stopwords (comma-separated or line-separated)"
-        )
-    
-    # Configuration options
-    use_default_stopwords = st.checkbox(
-        "✅ Use built-in English stopwords", 
-        value=True,
-        help="Include common English stopwords in filtering"
+    fig.update_layout(
+        title={
+            'text': '📊 Sentiment Distribution',
+            'x': 0.5,
+            'xanchor': 'center',
+            'font': {'size': 20, 'family': 'Inter'}
+        },
+        font=dict(family="Inter", size=12),
+        height=400,
+        margin=dict(t=80, b=40, l=40, r=40),
+        paper_bgcolor='white',
+        plot_bgcolor='white'
     )
     
+    return fig
+
+def create_sentiment_trend_chart(df, date_column=None):
+    """Create sentiment trend over time"""
+    if date_column and date_column in df.columns:
+        try:
+            df[date_column] = pd.to_datetime(df[date_column])
+            daily_sentiment = df.groupby([df[date_column].dt.date, 'consensus_sentiment']).size().unstack(fill_value=0)
+            
+            fig = go.Figure()
+            colors = {'positive': '#4CAF50', 'negative': '#f44336', 'neutral': '#ff9800', 'mixed': '#9c27b0'}
+            
+            for sentiment in daily_sentiment.columns:
+                fig.add_trace(go.Scatter(
+                    x=daily_sentiment.index,
+                    y=daily_sentiment[sentiment],
+                    mode='lines+markers',
+                    name=sentiment.title(),
+                    line=dict(color=colors.get(sentiment, '#cccccc'), width=3),
+                    marker=dict(size=6)
+                ))
+            
+            fig.update_layout(
+                title={'text': '📈 Sentiment Trend Over Time', 'x': 0.5, 'xanchor': 'center'},
+                xaxis_title='Date',
+                yaxis_title='Count',
+                hovermode='x unified',
+                height=400,
+                font=dict(family="Inter"),
+                paper_bgcolor='white',
+                plot_bgcolor='white'
+            )
+            
+            return fig
+        except:
+            pass
+    
+    return None
+
+def create_polarity_distribution(df):
+    """Create polarity distribution histogram"""
+    fig = make_subplots(rows=1, cols=2, subplot_titles=('TextBlob Polarity', 'VADER Compound'))
+    
+    fig.add_trace(go.Histogram(
+        x=df['textblob_polarity'],
+        nbinsx=30,
+        name='TextBlob',
+        marker_color='#2196F3',
+        opacity=0.7
+    ), row=1, col=1)
+    
+    fig.add_trace(go.Histogram(
+        x=df['vader_compound'],
+        nbinsx=30,
+        name='VADER',
+        marker_color='#ff9800',
+        opacity=0.7
+    ), row=1, col=2)
+    
+    fig.update_layout(
+        title={'text': '📊 Polarity Score Distributions', 'x': 0.5, 'xanchor': 'center'},
+        height=400,
+        showlegend=False,
+        font=dict(family="Inter"),
+        paper_bgcolor='white',
+        plot_bgcolor='white'
+    )
+    
+    return fig
+
+def create_category_sentiment_heatmap(df, category_column):
+    """Create category vs sentiment heatmap"""
+    if category_column != "None" and category_column in df.columns:
+        pivot_table = pd.crosstab(df[category_column], df['consensus_sentiment'], normalize='index') * 100
+        
+        fig = go.Figure(data=go.Heatmap(
+            z=pivot_table.values,
+            x=pivot_table.columns,
+            y=pivot_table.index,
+            colorscale='RdYlGn',
+            text=np.round(pivot_table.values, 1),
+            texttemplate="%{text}%",
+            textfont={"size": 12},
+            hovertemplate='Category: %{y}<br>Sentiment: %{x}<br>Percentage: %{z:.1f}%<extra></extra>'
+        ))
+        
+        fig.update_layout(
+            title={'text': '🔥 Category vs Sentiment Heatmap (%)', 'x': 0.5, 'xanchor': 'center'},
+            height=max(400, len(pivot_table.index) * 30),
+            font=dict(family="Inter"),
+            paper_bgcolor='white',
+            plot_bgcolor='white'
+        )
+        
+        return fig
+    return None
+
+def create_word_frequency_chart(df):
+    """Create top words frequency chart"""
+    all_text = ' '.join(df['processed_text'].dropna())
+    words = all_text.split()
+    word_freq = pd.Series(words).value_counts().head(15)
+    
+    fig = go.Figure(data=[go.Bar(
+        x=word_freq.values,
+        y=word_freq.index,
+        orientation='h',
+        marker_color='#2196F3',
+        text=word_freq.values,
+        textposition='auto'
+    )])
+    
+    fig.update_layout(
+        title={'text': '📝 Top 15 Most Frequent Words', 'x': 0.5, 'xanchor': 'center'},
+        xaxis_title='Frequency',
+        height=500,
+        font=dict(family="Inter"),
+        paper_bgcolor='white',
+        plot_bgcolor='white'
+    )
+    
+    return fig
+
+# --- Main Dashboard ---
+def main():
+    # Dashboard Header
+    st.markdown('''
+    <div class="dashboard-header">
+        <h1 class="dashboard-title">📊 Sentiment Analytics Dashboard</h1>
+        <p class="dashboard-subtitle">Professional sentiment analysis with interactive visualizations powered by TextBlob & VADER</p>
+    </div>
+    ''', unsafe_allow_html=True)
+
+    # Sidebar Configuration
+    with st.sidebar:
+        st.markdown("## ⚙️ Configuration Panel")
+        
+        uploaded_file = st.file_uploader(
+            "📄 Upload CSV File", 
+            type=['csv'],
+            help="Select your data file for analysis"
+        )
+        
+        stopwords_file = st.file_uploader(
+            "📝 Custom Stopwords (Optional)",
+            type=['txt'], 
+            help="Upload custom stopwords file"
+        )
+        
+        use_default_stopwords = st.checkbox("✅ Use Built-in Stopwords", value=True)
+        
+        st.markdown("---")
+        st.markdown("### 📊 Dashboard Features")
+        st.markdown("""
+        - **Real-time Analysis**
+        - **Interactive Charts** 
+        - **KPI Metrics**
+        - **Category Filtering**
+        - **Export Options**
+        """)
+
     if uploaded_file is not None:
         try:
-            # Load the CSV data
+            # Load data
             df = pd.read_csv(uploaded_file)
-            st.success(f"✅ Successfully loaded {len(df)} rows and {len(df.columns)} columns")
             
-            # Column selection
-            st.header("⚙️ Configuration")
+            # Configuration section
+            st.markdown("## 🔧 Analysis Configuration")
             
-            col1, col2 = st.columns(2)
+            col1, col2, col3 = st.columns(3)
             
             with col1:
-                text_column = st.selectbox(
-                    "📝 Select text column for analysis", 
-                    df.columns,
-                    help="Choose the column containing text to analyze"
-                )
+                text_column = st.selectbox("📝 Text Column", df.columns)
             
             with col2:
                 category_options = ["None"] + list(df.columns)
-                category_column = st.selectbox(
-                    "📊 Select category column (optional)", 
-                    category_options,
-                    help="Choose a column to group results by category"
-                )
+                category_column = st.selectbox("📊 Category Column", category_options)
             
-            # Data preview
-            with st.expander("👀 Preview Your Data", expanded=False):
-                st.dataframe(df.head(), use_container_width=True)
-                st.write(f"**Dataset shape:** {df.shape[0]} rows × {df.shape[1]} columns")
-                
-                # Show sample text
-                if text_column in df.columns:
-                    sample_text = str(df[text_column].iloc[0])[:300]
-                    st.write(f"**Sample text:** {sample_text}...")
+            with col3:
+                date_options = ["None"] + [col for col in df.columns if 'date' in col.lower() or 'time' in col.lower()]
+                date_column = st.selectbox("📅 Date Column (Optional)", date_options)
+                if date_column == "None":
+                    date_column = None
             
             # Load stopwords
             custom_stopwords_content = None
@@ -298,283 +522,260 @@ def main():
                 custom_stopwords_content = stopwords_file.read().decode('utf-8')
             
             stopwords_set = load_stopwords(custom_stopwords_content, use_default_stopwords)
-            st.info(f"📝 Using {len(stopwords_set)} total stopwords")
             
             # Analysis button
-            if st.button("🚀 Start Sentiment Analysis", type="primary"):
-                
-                # Validation
-                if text_column not in df.columns:
-                    st.error("❌ Selected text column not found in the data")
-                    return
-                
-                # Check for valid text data
-                valid_texts = df[text_column].dropna()
-                if len(valid_texts) == 0:
-                    st.error("❌ No valid text data found in selected column")
-                    return
+            if st.button("🚀 Start Analysis", type="primary", use_container_width=True):
                 
                 # Progress tracking
-                progress_bar = st.progress(0)
-                status = st.empty()
+                progress_container = st.container()
+                with progress_container:
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
                 
                 try:
-                    # Step 1: Text cleaning
-                    status.text("🧹 Cleaning and preprocessing text...")
+                    # Analysis steps
+                    status_text.text("🧹 Preprocessing text data...")
                     progress_bar.progress(20)
-                    
                     df['cleaned_text'] = df[text_column].apply(clean_text)
                     
-                    # Step 2: Remove stopwords
-                    status.text("🛑 Removing stopwords...")
+                    status_text.text("🛑 Removing stopwords...")
                     progress_bar.progress(40)
+                    df['processed_text'] = df['cleaned_text'].apply(lambda x: remove_stopwords(x, stopwords_set))
                     
-                    df['processed_text'] = df['cleaned_text'].apply(
-                        lambda x: remove_stopwords(x, stopwords_set)
-                    )
-                    
-                    # Step 3: TextBlob sentiment analysis
-                    status.text("🔍 Running TextBlob sentiment analysis...")
+                    status_text.text("🔍 Running TextBlob analysis...")
                     progress_bar.progress(60)
-                    
                     textblob_results = df['processed_text'].apply(analyze_textblob)
-                    df['textblob_polarity'] = [result[0] for result in textblob_results]
-                    df['textblob_subjectivity'] = [result[1] for result in textblob_results]
-                    df['textblob_sentiment'] = [result[2] for result in textblob_results]
+                    df['textblob_polarity'] = [r[0] for r in textblob_results]
+                    df['textblob_subjectivity'] = [r[1] for r in textblob_results]
+                    df['textblob_sentiment'] = [r[2] for r in textblob_results]
                     
-                    # Step 4: VADER sentiment analysis
-                    status.text("⚡ Running VADER sentiment analysis...")
+                    status_text.text("⚡ Running VADER analysis...")
                     progress_bar.progress(80)
-                    
                     vader_results = df['processed_text'].apply(analyze_vader)
-                    df['vader_compound'] = [result[0]['compound'] for result in vader_results]
-                    df['vader_positive'] = [result[0]['pos'] for result in vader_results]
-                    df['vader_neutral'] = [result[0]['neu'] for result in vader_results]
-                    df['vader_negative'] = [result[0]['neg'] for result in vader_results]
-                    df['vader_sentiment'] = [result[1] for result in vader_results]
+                    df['vader_compound'] = [r[0]['compound'] for r in vader_results]
+                    df['vader_positive'] = [r[0]['pos'] for r in vader_results]
+                    df['vader_neutral'] = [r[0]['neu'] for r in vader_results]
+                    df['vader_negative'] = [r[0]['neg'] for r in vader_results]
+                    df['vader_sentiment'] = [r[1] for r in vader_results]
                     
-                    # Step 5: Calculate consensus
-                    status.text("🤝 Calculating consensus sentiment...")
+                    status_text.text("🤝 Calculating consensus...")
                     progress_bar.progress(90)
-                    
                     df['consensus_sentiment'] = df.apply(
-                        lambda row: get_consensus_sentiment(
-                            row['textblob_sentiment'], 
-                            row['vader_sentiment']
-                        ), axis=1
+                        lambda row: get_consensus_sentiment(row['textblob_sentiment'], row['vader_sentiment']), axis=1
                     )
                     
-                    # Complete
                     progress_bar.progress(100)
-                    status.text("✅ Sentiment analysis completed successfully!")
+                    status_text.text("✅ Analysis completed successfully!")
                     
-                    # Store results in session state
-                    st.session_state['analysis_results'] = df
+                    # Store results
+                    st.session_state['dashboard_data'] = df
                     st.session_state['text_column'] = text_column
                     st.session_state['category_column'] = category_column
+                    st.session_state['date_column'] = date_column
                     
-                    st.balloons()  # Celebration!
+                    # Clear progress indicators
+                    progress_container.empty()
+                    st.balloons()
                     
                 except Exception as e:
                     st.error(f"❌ Analysis failed: {str(e)}")
-                    st.exception(e)
                     return
                     
         except Exception as e:
-            st.error(f"❌ Error loading CSV file: {str(e)}")
+            st.error(f"❌ Error loading file: {str(e)}")
             return
 
-    # Display results if analysis is complete
-    if 'analysis_results' in st.session_state:
-        df = st.session_state['analysis_results']
+    # Display Dashboard
+    if 'dashboard_data' in st.session_state:
+        df = st.session_state['dashboard_data']
         text_column = st.session_state['text_column']
         category_column = st.session_state['category_column']
+        date_column = st.session_state['date_column']
         
-        st.header("📊 Analysis Results")
+        # Filters Section
+        st.markdown("## 🔍 Dashboard Filters")
         
-        # Category filtering
-        display_df = df.copy()
-        if category_column != "None" and category_column in df.columns:
-            st.subheader("🔍 Filter Results")
-            categories = df[category_column].dropna().unique()
-            selected_categories = st.multiselect(
-                "Select categories to display", 
-                categories,
-                default=list(categories)[:5] if len(categories) > 5 else list(categories),
-                help="Choose which categories to include in the analysis"
+        filter_cols = st.columns(4)
+        
+        with filter_cols[0]:
+            sentiment_filter = st.multiselect(
+                "Sentiment Filter",
+                options=['positive', 'negative', 'neutral', 'mixed'],
+                default=['positive', 'negative', 'neutral', 'mixed']
             )
-            if selected_categories:
-                display_df = df[df[category_column].isin(selected_categories)]
         
-        # Summary metrics
-        st.subheader("📈 Summary Statistics")
-        sentiment_counts = display_df['consensus_sentiment'].value_counts()
+        with filter_cols[1]:
+            if category_column != "None" and category_column in df.columns:
+                category_options = list(df[category_column].unique())
+                category_filter = st.multiselect(
+                    "Category Filter",
+                    options=category_options,
+                    default=category_options[:10] if len(category_options) > 10 else category_options
+                )
+            else:
+                category_filter = None
         
-        col1, col2, col3, col4 = st.columns(4)
+        with filter_cols[2]:
+            polarity_range = st.slider(
+                "Polarity Range",
+                min_value=-1.0,
+                max_value=1.0,
+                value=(-1.0, 1.0),
+                step=0.1
+            )
         
-        with col1:
-            st.metric("📊 Total Records", len(display_df))
-        with col2:
-            st.metric("😊 Positive", sentiment_counts.get('positive', 0))
-        with col3:
-            st.metric("😞 Negative", sentiment_counts.get('negative', 0))
-        with col4:
+        with filter_cols[3]:
+            top_n_records = st.selectbox(
+                "Records to Display",
+                options=[100, 500, 1000, 5000, len(df)],
+                index=2
+            )
+        
+        # Apply filters
+        filtered_df = df[
+            (df['consensus_sentiment'].isin(sentiment_filter)) &
+            (df['textblob_polarity'] >= polarity_range[0]) &
+            (df['textblob_polarity'] <= polarity_range[1])
+        ].head(top_n_records)
+        
+        if category_filter and category_column != "None":
+            filtered_df = filtered_df[filtered_df[category_column].isin(category_filter)]
+        
+        # KPI Cards Section
+        st.markdown("## 📊 Key Performance Indicators")
+        
+        sentiment_counts = filtered_df['consensus_sentiment'].value_counts()
+        
+        kpi_cols = st.columns(4)
+        
+        with kpi_cols[0]:
+            st.markdown(create_kpi_card("Total Records", len(filtered_df), "total"), unsafe_allow_html=True)
+        
+        with kpi_cols[1]:
+            st.markdown(create_kpi_card("Positive Sentiment", sentiment_counts.get('positive', 0), "positive"), unsafe_allow_html=True)
+        
+        with kpi_cols[2]:
+            st.markdown(create_kpi_card("Negative Sentiment", sentiment_counts.get('negative', 0), "negative"), unsafe_allow_html=True)
+        
+        with kpi_cols[3]:
             neutral_mixed = sentiment_counts.get('neutral', 0) + sentiment_counts.get('mixed', 0)
-            st.metric("😐 Neutral/Mixed", neutral_mixed)
+            st.markdown(create_kpi_card("Neutral/Mixed", neutral_mixed, "neutral"), unsafe_allow_html=True)
         
-        # Sample results table
-        st.subheader("🔍 Sample Results")
-        sample_columns = [text_column, 'textblob_sentiment', 'vader_sentiment', 'consensus_sentiment']
-        if category_column != "None" and category_column in df.columns:
-            sample_columns.insert(1, category_column)
+        # Additional KPI metrics
+        kpi_cols2 = st.columns(4)
+        
+        with kpi_cols2[0]:
+            avg_polarity = filtered_df['textblob_polarity'].mean()
+            st.metric("Avg Polarity", f"{avg_polarity:.3f}", delta=f"{avg_polarity:.3f}")
+        
+        with kpi_cols2[1]:
+            avg_subjectivity = filtered_df['textblob_subjectivity'].mean()
+            st.metric("Avg Subjectivity", f"{avg_subjectivity:.3f}")
+        
+        with kpi_cols2[2]:
+            avg_vader = filtered_df['vader_compound'].mean()
+            st.metric("Avg VADER Score", f"{avg_vader:.3f}", delta=f"{avg_vader:.3f}")
+        
+        with kpi_cols2[3]:
+            positive_rate = (sentiment_counts.get('positive', 0) / len(filtered_df) * 100) if len(filtered_df) > 0 else 0
+            st.metric("Positive Rate", f"{positive_rate:.1f}%")
+        
+        # Charts Section
+        st.markdown("## 📈 Interactive Visualizations")
+        
+        # Row 1: Donut Chart and Trend
+        chart_cols1 = st.columns(2)
+        
+        with chart_cols1[0]:
+            if len(sentiment_counts) > 0:
+                fig_donut = create_sentiment_donut_chart(sentiment_counts)
+                st.plotly_chart(fig_donut, use_container_width=True)
+        
+        with chart_cols1[1]:
+            if date_column:
+                fig_trend = create_sentiment_trend_chart(filtered_df, date_column)
+                if fig_trend:
+                    st.plotly_chart(fig_trend, use_container_width=True)
+            else:
+                # Word frequency chart as alternative
+                fig_words = create_word_frequency_chart(filtered_df)
+                st.plotly_chart(fig_words, use_container_width=True)
+        
+        # Row 2: Polarity Distribution
+        st.plotly_chart(create_polarity_distribution(filtered_df), use_container_width=True)
+        
+        # Row 3: Category Heatmap (if applicable)
+        if category_column != "None" and category_column in filtered_df.columns:
+            fig_heatmap = create_category_sentiment_heatmap(filtered_df, category_column)
+            if fig_heatmap:
+                st.plotly_chart(fig_heatmap, use_container_width=True)
+        
+        # Data Table Section
+        st.markdown("## 📋 Detailed Data View")
+        
+        display_columns = [text_column, 'consensus_sentiment', 'textblob_polarity', 'vader_compound']
+        if category_column != "None":
+            display_columns.insert(1, category_column)
         
         st.dataframe(
-            display_df[sample_columns].head(10), 
-            use_container_width=True
+            filtered_df[display_columns].head(50),
+            use_container_width=True,
+            height=400
         )
         
-        # Detailed metrics in expandable section
-        with st.expander("📊 Detailed Sentiment Metrics", expanded=False):
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.write("**TextBlob Metrics:**")
-                st.write(f"• Average Polarity: {display_df['textblob_polarity'].mean():.3f}")
-                st.write(f"• Average Subjectivity: {display_df['textblob_subjectivity'].mean():.3f}")
-                st.write(f"• Polarity Range: {display_df['textblob_polarity'].min():.3f} to {display_df['textblob_polarity'].max():.3f}")
-            
-            with col2:
-                st.write("**VADER Metrics:**")
-                st.write(f"• Average Compound: {display_df['vader_compound'].mean():.3f}")
-                st.write(f"• Average Positive: {display_df['vader_positive'].mean():.3f}")
-                st.write(f"• Average Negative: {display_df['vader_negative'].mean():.3f}")
+        # Export Section
+        st.markdown("## 📥 Export Dashboard Data")
         
-        # Visualizations
-        st.header("📊 Visual Analytics")
+        export_cols = st.columns(3)
         
-        col1, col2 = st.columns(2)
+        with export_cols[0]:
+            csv_full = filtered_df.to_csv(index=False)
+            st.download_button(
+                "📊 Download Full Dataset",
+                csv_full,
+                "sentiment_dashboard_data.csv",
+                "text/csv",
+                use_container_width=True
+            )
         
-        with col1:
-            # Sentiment distribution pie chart
-            st.subheader("🥧 Sentiment Distribution")
-            if len(sentiment_counts) > 0:
-                fig, ax = plt.subplots(figsize=(8, 6))
-                colors = ['#2ecc71', '#e74c3c', '#f39c12', '#9b59b6']
-                sentiment_counts.plot.pie(
-                    ax=ax, 
-                    autopct='%1.1f%%',
-                    colors=colors[:len(sentiment_counts)],
-                    startangle=90
+        with export_cols[1]:
+            summary_stats = pd.DataFrame({
+                'Metric': ['Total Records', 'Positive', 'Negative', 'Neutral', 'Mixed', 
+                          'Avg Polarity', 'Avg Subjectivity', 'Avg VADER'],
+                'Value': [len(filtered_df), sentiment_counts.get('positive', 0), 
+                         sentiment_counts.get('negative', 0), sentiment_counts.get('neutral', 0),
+                         sentiment_counts.get('mixed', 0), f"{filtered_df['textblob_polarity'].mean():.3f}",
+                         f"{filtered_df['textblob_subjectivity'].mean():.3f}", f"{filtered_df['vader_compound'].mean():.3f}"]
+            })
+            csv_stats = summary_stats.to_csv(index=False)
+            st.download_button(
+                "📈 Download Summary Stats",
+                csv_stats,
+                "sentiment_summary_stats.csv",
+                "text/csv",
+                use_container_width=True
+            )
+        
+        with export_cols[2]:
+            if category_column != "None" and category_column in filtered_df.columns:
+                category_breakdown = pd.crosstab(filtered_df[category_column], filtered_df['consensus_sentiment'])
+                csv_breakdown = category_breakdown.to_csv()
+                st.download_button(
+                    "📊 Download Category Breakdown",
+                    csv_breakdown,
+                    "sentiment_category_breakdown.csv",
+                    "text/csv",
+                    use_container_width=True
                 )
-                ax.set_ylabel('')
-                ax.set_title('Sentiment Distribution')
-                st.pyplot(fig)
-                plt.close(fig)
-            else:
-                st.info("No sentiment data available for visualization")
-        
-        with col2:
-            # Word cloud
-            st.subheader("☁️ Most Common Words")
-            try:
-                text_for_cloud = ' '.join(display_df['processed_text'].dropna())
-                if text_for_cloud.strip():
-                    wordcloud = WordCloud(
-                        width=800, 
-                        height=400,
-                        background_color='white',
-                        max_words=50,
-                        colormap='viridis'
-                    ).generate(text_for_cloud)
-                    
-                    fig, ax = plt.subplots(figsize=(8, 6))
-                    ax.imshow(wordcloud, interpolation='bilinear')
-                    ax.axis('off')
-                    ax.set_title('Word Cloud of Processed Text')
-                    st.pyplot(fig)
-                    plt.close(fig)
-                else:
-                    st.info("No text data available for word cloud")
-            except Exception as e:
-                st.error(f"Error generating word cloud: {e}")
-        
-        # Category-based analysis
-        if category_column != "None" and category_column in display_df.columns:
-            st.subheader("📈 Sentiment by Category")
-            category_sentiment = pd.crosstab(
-                display_df[category_column], 
-                display_df['consensus_sentiment']
-            )
-            
-            if not category_sentiment.empty:
-                st.bar_chart(category_sentiment)
-            else:
-                st.info("No category data available for visualization")
-        
-        # Download section
-        st.header("📥 Download Results")
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            # Full results download
-            csv_full = display_df.to_csv(index=False)
-            st.download_button(
-                label="📥 Download Full Results",
-                data=csv_full,
-                file_name="sentiment_analysis_complete.csv",
-                mime="text/csv",
-                help="Download all columns including processed text and detailed scores"
-            )
-        
-        with col2:
-            # Summary download
-            summary_columns = [text_column, 'consensus_sentiment', 'textblob_polarity', 'vader_compound']
-            if category_column != "None" and category_column in df.columns:
-                summary_columns.insert(1, category_column)
-            
-            csv_summary = display_df[summary_columns].to_csv(index=False)
-            st.download_button(
-                label="📥 Download Summary",
-                data=csv_summary,
-                file_name="sentiment_analysis_summary.csv", 
-                mime="text/csv",
-                help="Download key results only"
-            )
-        
-        with col3:
-            # Statistics download
-            stats_data = {
-                'Metric': [
-                    'Total Records',
-                    'Positive Count',
-                    'Negative Count', 
-                    'Neutral Count',
-                    'Mixed Count',
-                    'Average TextBlob Polarity',
-                    'Average TextBlob Subjectivity',
-                    'Average VADER Compound'
-                ],
-                'Value': [
-                    len(display_df),
-                    sentiment_counts.get('positive', 0),
-                    sentiment_counts.get('negative', 0),
-                    sentiment_counts.get('neutral', 0),
-                    sentiment_counts.get('mixed', 0),
-                    f"{display_df['textblob_polarity'].mean():.3f}",
-                    f"{display_df['textblob_subjectivity'].mean():.3f}",
-                    f"{display_df['vader_compound'].mean():.3f}"
-                ]
-            }
-            stats_df = pd.DataFrame(stats_data)
-            csv_stats = stats_df.to_csv(index=False)
-            st.download_button(
-                label="📥 Download Statistics",
-                data=csv_stats,
-                file_name="sentiment_analysis_stats.csv",
-                mime="text/csv",
-                help="Download summary statistics"
-            )
+
+    # Footer
+    st.markdown("---")
+    st.markdown("""
+    <div style='text-align: center; color: #666; padding: 2rem;'>
+        <p>📊 Professional Sentiment Analytics Dashboard | Powered by Streamlit & Plotly</p>
+        <p>Built with ❤️ for data-driven insights</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
