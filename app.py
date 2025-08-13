@@ -27,7 +27,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- Custom CSS for Power BI Style ---
+# --- Custom CSS for Power BI Style (enhanced KPI shadow + border) ---
 st.markdown("""
 <style>
     /* Import Google Fonts */
@@ -43,43 +43,72 @@ st.markdown("""
         font-family: 'Inter', sans-serif;
     }
 
-    /* KPI Card Styling */
+    /* KPI Card Styling - Enhanced for Power BI-like look */
     .kpi-card {
+        position: relative;
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 1.5rem;
-        border-radius: 10px;
+        padding: 1.25rem 1.5rem;
+        border-radius: 12px;
         color: white;
         text-align: center;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        border: 1px solid rgba(0,0,0,0.12);
+        box-shadow:
+            0 10px 22px rgba(0, 0, 0, 0.15),
+            0 4px 10px rgba(0, 0, 0, 0.10);
         margin-bottom: 1rem;
+        transition: box-shadow 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
+        overflow: hidden;
     }
 
+    /* Subtle inner highlight */
+    .kpi-card::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.25);
+        pointer-events: none;
+    }
+
+    .kpi-card:hover {
+        transform: translateY(-2px);
+        box-shadow:
+            0 14px 28px rgba(0, 0, 0, 0.18),
+            0 8px 12px rgba(0, 0, 0, 0.12);
+        border-color: rgba(0,0,0,0.18);
+    }
+
+    /* Variant backgrounds + themed borders */
     .kpi-positive {
-        background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+        background: linear-gradient(135deg, #4CAF50 0%, #2e7d32 100%);
+        border-color: rgba(46, 125, 50, 0.45);
     }
-
     .kpi-negative {
-        background: linear-gradient(135deg, #f44336 0%, #d32f2f 100%);
+        background: linear-gradient(135deg, #f44336 0%, #b71c1c 100%);
+        border-color: rgba(183, 28, 28, 0.45);
     }
-
     .kpi-neutral {
-        background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
+        background: linear-gradient(135deg, #ff9800 0%, #ef6c00 100%);
+        border-color: rgba(239, 108, 0, 0.45);
     }
-
     .kpi-total {
-        background: linear-gradient(135deg, #2196F3 0%, #1976d2 100%);
+        background: linear-gradient(135deg, #2196F3 0%, #1565c0 100%);
+        border-color: rgba(21, 101, 192, 0.45);
     }
 
     .kpi-number {
-        font-size: 2.5rem;
+        font-size: 2.35rem;
         font-weight: 700;
-        margin: 0;
+        line-height: 1;
+        margin: 0 0 0.35rem 0;
+        text-shadow: 0 1px 1px rgba(0,0,0,0.25);
     }
 
     .kpi-label {
-        font-size: 0.9rem;
-        opacity: 0.9;
+        font-size: 0.95rem;
+        opacity: 0.95;
         margin: 0;
+        letter-spacing: 0.2px;
     }
 
     /* Header styling */
@@ -90,17 +119,20 @@ st.markdown("""
         color: white;
         text-align: center;
         margin-bottom: 2rem;
+        box-shadow: 0 10px 24px rgba(0,0,0,0.12);
+        border: 1px solid rgba(255,255,255,0.12);
     }
 
     .dashboard-title {
         font-size: 2.5rem;
         font-weight: 700;
         margin: 0;
+        text-shadow: 0 1px 1px rgba(0,0,0,0.25);
     }
 
     .dashboard-subtitle {
         font-size: 1.1rem;
-        opacity: 0.9;
+        opacity: 0.95;
         margin: 0.5rem 0 0 0;
     }
 
@@ -108,9 +140,9 @@ st.markdown("""
     .metric-card {
         background: white;
         padding: 1.5rem;
-        border-radius: 8px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        border-left: 4px solid #2196F3;
+        border-radius: 10px;
+        box-shadow: 0 6px 16px rgba(0,0,0,0.10);
+        border: 1px solid #e6e9ef;
     }
 
     /* Sidebar styling */
@@ -122,8 +154,9 @@ st.markdown("""
     .chart-container {
         background: white;
         padding: 1.5rem;
-        border-radius: 8px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        border-radius: 10px;
+        box-shadow: 0 6px 16px rgba(0,0,0,0.10);
+        border: 1px solid #e6e9ef;
         margin-bottom: 1rem;
     }
 
@@ -131,7 +164,8 @@ st.markdown("""
     .filter-section {
         background: #f8f9fa;
         padding: 1rem;
-        border-radius: 8px;
+        border-radius: 10px;
+        border: 1px solid #e6e9ef;
         margin-bottom: 1rem;
     }
 
@@ -139,9 +173,22 @@ st.markdown("""
     .file-upload-info {
         background: #e3f2fd;
         padding: 1rem;
-        border-radius: 8px;
-        border-left: 4px solid #2196F3;
+        border-radius: 10px;
+        border: 1px solid #bbdefb;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.06);
         margin-bottom: 1rem;
+    }
+
+    /* Give Streamlit st.metric tiles a Power BI-like card look */
+    [data-testid="stMetric"] {
+        background: #ffffff;
+        border: 1px solid #e6e9ef;
+        border-radius: 10px;
+        padding: 0.85rem 1rem;
+        box-shadow: 0 6px 16px rgba(0,0,0,0.10);
+    }
+    [data-testid="stMetric"]:hover {
+        box-shadow: 0 10px 22px rgba(0,0,0,0.12);
     }
 </style>
 """, unsafe_allow_html=True)
@@ -292,15 +339,9 @@ def analyze_emoji_sentiment(text):
 
         pc, nc = len(pos_scores), len(neg_scores)
         if pc > nc and pc > 0:
-            if avg_score > 0.05 or max_score > 0.3:
-                sentiment = "positive"
-            else:
-                sentiment = "neutral"
+            sentiment = "positive" if (avg_score > 0.05 or max_score > 0.3) else "neutral"
         elif nc > pc and nc > 0:
-            if avg_score < -0.05 or min_score < -0.3:
-                sentiment = "negative"
-            else:
-                sentiment = "neutral"
+            sentiment = "negative" if (avg_score < -0.05 or min_score < -0.3) else "neutral"
         elif pc == nc and pc > 0:
             pos_int = np.mean(pos_scores) if pos_scores else 0
             neg_int = abs(np.mean(neg_scores)) if neg_scores else 0
@@ -545,9 +586,11 @@ def load_stopwords(custom_content=None, use_default=True):
 # --- Power BI Style KPI Cards ---
 def create_kpi_card(title, value, card_type="total"):
     kpi_class = f"kpi-card kpi-{card_type}"
+    # Format numeric and string values safely
+    value_display = f"{value:,}" if isinstance(value, (int, float, np.integer, np.floating)) else str(value)
     return f"""
     <div class="{kpi_class}">
-        <p class="kpi-number">{value:,}</p>
+        <p class="kpi-number">{value_display}</p>
         <p class="kpi-label">{title}</p>
     </div>
     """
@@ -964,7 +1007,7 @@ def main():
             avg_emoji_score = filtered_df['emoji_score'].mean() if 'emoji_score' in filtered_df.columns else 0.0
             st.markdown(create_kpi_card("Avg Emoji Score", int(avg_emoji_score * 1000), "total"), unsafe_allow_html=True)
 
-        # Additional KPI metrics
+        # Additional KPI metrics (styled via CSS above)
         kpi_cols2 = st.columns(4)
         with kpi_cols2[0]:
             avg_polarity = filtered_df['textblob_polarity'].mean()
