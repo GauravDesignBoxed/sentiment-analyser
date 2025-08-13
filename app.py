@@ -164,6 +164,201 @@ ENGLISH_STOPWORDS = {
     'needn', 'shan', 'shouldn', 'wasn', 'weren', 'won', 'wouldn'
 }
 
+# --- Emoji Sentiment Mapping and Utilities (FIXED multi-emoji handling) ---
+
+EMOJI_SENTIMENT_MAPPING = {
+    # Very Positive
+    '😍': 0.9, '🥰': 0.9, '🤩': 0.9, '🥳': 0.9, '❤️': 0.9, '❤': 0.9, '🎉': 0.9, '🏆': 0.9, '🥇': 0.9,
+    # Positive
+    '😊': 0.8, '😃': 0.8, '😄': 0.8, '😂': 0.8, '🤣': 0.8, '😘': 0.8, '🤗': 0.8, '🙌': 0.8,
+    '💕': 0.8, '💖': 0.8, '💗': 0.8, '💘': 0.8, '💙': 0.8, '💚': 0.8, '💜': 0.8, '🧡': 0.8, '💛': 0.8,
+    '🎊': 0.8, '🌟': 0.8, '🔥': 0.8, '🌈': 0.8, '🌞': 0.8, '💯': 0.8,
+    # Moderately Positive
+    '😁': 0.7, '😎': 0.7, '😇': 0.7, '👍': 0.7, '👏': 0.7, '💪': 0.7, '🤟': 0.7, '⭐': 0.7, '✨': 0.7,
+    '🎁': 0.7, '💎': 0.7, '☀️': 0.7, '🤍': 0.7,
+    # Slightly Positive
+    '😆': 0.6, '😋': 0.6, '😜': 0.6, '😝': 0.6, '😛': 0.6, '😉': 0.6, '😌': 0.6, '👌': 0.6,
+    '🤞': 0.6, '✌️': 0.6, '🤘': 0.6, '🎈': 0.6, '😗': 0.6, '😙': 0.6, '😚': 0.6,
+    # Mildly Positive
+    '🙂': 0.5, '👊': 0.5, '✊': 0.5,
+    # Neutral/Mild
+    '🤤': 0.4, '🥺': 0.4, '🤭': 0.4, '😏': 0.3, '🤫': 0.3, '🤔': 0.2, '🙃': 0.2, '🤪': 0.3, '🤓': 0.3, '🧐': 0.1,
+    # True Neutral
+    '😐': 0.0, '😶': 0.0, '🤷': 0.0, '🤷‍♀️': 0.0, '🤷‍♂️': 0.0, '💭': 0.0, '👽': 0.0, '👾': 0.0, '🤖': 0.0,
+    # Slightly Negative
+    '😴': -0.2, '💤': -0.1, '🤐': -0.2, '🤨': -0.2, '😬': -0.3, '🙄': -0.4, '😒': -0.5, '😑': -0.3, '😷': -0.3, '🥲': -0.3,
+    # Moderately Negative
+    '😕': -0.4, '🙁': -0.5, '☹️': -0.5, '😞': -0.6, '😟': -0.5, '😔': -0.6, '😣': -0.5, '😖': -0.6, '😪': -0.4,
+    '😓': -0.5, '🤧': -0.4, '🥵': -0.5, '🥶': -0.5,
+    # Negative
+    '😢': -0.7, '😥': -0.6, '😨': -0.7, '😰': -0.7, '😫': -0.7, '😩': -0.7, '😵': -0.7, '🤯': -0.6, '🤒': -0.6,
+    '🤕': -0.6, '🤢': -0.7, '👎': -0.7,
+    # Very Negative
+    '😭': -0.8, '😤': -0.6, '😠': -0.8, '😈': -0.6, '👿': -0.8, '💀': -0.8, '☠️': -0.8, '🤮': -0.8, '💩': -0.8,
+    # Extremely Negative
+    '😡': -0.9, '🤬': -0.9, '💔': -0.9, '🖕': -0.9,
+    # Context Dependent
+    '👻': -0.3, '❣️': 0.7, '💋': 0.6
+}
+
+# Regex to find emoji runs; we will split into individual tokens
+EMOJI_REGEX = re.compile(
+    "[" 
+    "\U0001F600-\U0001F64F"  # Emoticons
+    "\U0001F300-\U0001F5FF"  # Symbols & pictographs
+    "\U0001F680-\U0001F6FF"  # Transport & map symbols
+    "\U0001F1E0-\U0001F1FF"  # Flags
+    "\u2600-\u26FF"          # Misc symbols
+    "\u2700-\u27BF"          # Dingbats
+    "\U0001F900-\U0001F9FF"  # Supplemental symbols
+    "\U0001FA70-\U0001FAFF"  # Symbols & Pictographs Extended-A
+    "]+", flags=re.UNICODE
+)
+FITZPATRICK_MOD_RE = re.compile(r'[\U0001F3FB-\U0001F3FF]')  # skin tones
+ZWJ = '\u200D'
+VS16 = '\uFE0F'
+
+def split_emoji_run(run: str):
+    out = []
+    i = 0
+    while i < len(run):
+        ch = run[i]
+        if i + 1 < len(run) and run[i + 1] == VS16:
+            out.append(ch + VS16)
+            i += 2
+        else:
+            out.append(ch)
+            i += 1
+    return out
+
+def normalize_emoji(e: str):
+    e = e.replace(VS16, '')
+    e = FITZPATRICK_MOD_RE.sub('', e)
+    e = e.replace(ZWJ, '')
+    return e
+
+def build_normalized_mapping(mapping: dict):
+    norm = {}
+    for k, v in mapping.items():
+        nk = normalize_emoji(k)
+        norm[nk] = v
+    return norm
+
+NORMALIZED_EMOJI_MAP = build_normalized_mapping(EMOJI_SENTIMENT_MAPPING)
+
+def extract_emojis_display(text: str):
+    if pd.isna(text) or text is None:
+        return []
+    runs = EMOJI_REGEX.findall(str(text))
+    tokens = []
+    for r in runs:
+        tokens.extend(split_emoji_run(r))
+    return tokens
+
+def extract_emoji_tokens(text: str, normalize: bool = True):
+    if pd.isna(text) or text is None:
+        return []
+    runs = EMOJI_REGEX.findall(str(text))
+    tokens = []
+    for r in runs:
+        tokens.extend(split_emoji_run(r))
+    if normalize:
+        tokens = [normalize_emoji(t) for t in tokens if normalize_emoji(t)]
+    return tokens
+
+def analyze_emoji_sentiment(text):
+    try:
+        display_emojis = extract_emojis_display(text)
+        norm_emojis = extract_emoji_tokens(text, normalize=True)
+        if not norm_emojis:
+            return 0.0, 0, "neutral", []
+
+        scores = []
+        pos_scores, neg_scores, neu_scores = [], [], []
+        for e in norm_emojis:
+            s = NORMALIZED_EMOJI_MAP.get(e, 0.0)
+            scores.append(s)
+            if s > 0.15:
+                pos_scores.append(s)
+            elif s < -0.15:
+                neg_scores.append(s)
+            else:
+                neu_scores.append(s)
+
+        emoji_count = len(norm_emojis)
+        avg_score = float(np.mean(scores))
+        max_score = max(scores)
+        min_score = min(scores)
+
+        pc, nc = len(pos_scores), len(neg_scores)
+        if pc > nc and pc > 0:
+            if avg_score > 0.05 or max_score > 0.3:
+                sentiment = "positive"
+            else:
+                sentiment = "neutral"
+        elif nc > pc and nc > 0:
+            if avg_score < -0.05 or min_score < -0.3:
+                sentiment = "negative"
+            else:
+                sentiment = "neutral"
+        elif pc == nc and pc > 0:
+            pos_int = np.mean(pos_scores) if pos_scores else 0
+            neg_int = abs(np.mean(neg_scores)) if neg_scores else 0
+            if pos_int > neg_int:
+                sentiment = "positive"
+            elif neg_int > pos_int:
+                sentiment = "negative"
+            else:
+                sentiment = "neutral"
+        else:
+            if avg_score > 0.05:
+                sentiment = "positive"
+            elif avg_score < -0.05:
+                sentiment = "negative"
+            else:
+                sentiment = "neutral"
+
+        return avg_score, emoji_count, sentiment, display_emojis
+    except Exception:
+        return 0.0, 0, "neutral", []
+
+def get_emoji_statistics(df):
+    stats = {
+        'total_emojis': 0,
+        'unique_emojis': set(),
+        'emoji_frequency': {},
+        'avg_emojis_per_text': 0,
+        'texts_with_emojis': 0,
+        'most_common_emoji': None,
+        'emoji_sentiment_distribution': {'positive': 0, 'negative': 0, 'neutral': 0}
+    }
+    all_emojis = []
+    tw = 0
+    for text in df['original_text']:
+        emos = extract_emoji_tokens(text, normalize=True)
+        if emos:
+            tw += 1
+            all_emojis.extend(emos)
+            stats['unique_emojis'].update(emos)
+            for e in emos:
+                stats['emoji_frequency'][e] = stats['emoji_frequency'].get(e, 0) + 1
+
+    stats['total_emojis'] = len(all_emojis)
+    stats['texts_with_emojis'] = tw
+    stats['avg_emojis_per_text'] = len(all_emojis) / len(df) if len(df) > 0 else 0
+
+    if stats['emoji_frequency']:
+        stats['most_common_emoji'] = max(stats['emoji_frequency'].items(), key=lambda x: x[1])
+
+    for emoji, count in stats['emoji_frequency'].items():
+        sc = NORMALIZED_EMOJI_MAP.get(emoji, 0.0)
+        if sc > 0.15:
+            stats['emoji_sentiment_distribution']['positive'] += count
+        elif sc < -0.15:
+            stats['emoji_sentiment_distribution']['negative'] += count
+        else:
+            stats['emoji_sentiment_distribution']['neutral'] += count
+    return stats
 
 # --- Authentication ---
 def check_password():
@@ -172,8 +367,8 @@ def check_password():
     def password_entered():
         try:
             if (
-                    st.session_state["username"] == st.secrets["auth"]["username"]
-                    and st.session_state["password"] == st.secrets["auth"]["password"]
+                st.session_state["username"] == st.secrets["auth"]["username"]
+                and st.session_state["password"] == st.secrets["auth"]["password"]
             ):
                 st.session_state["password_correct"] = True
                 del st.session_state["password"]
@@ -187,8 +382,8 @@ def check_password():
     if "password_correct" not in st.session_state:
         st.markdown(
             '<div class="dashboard-header"><h1 class="dashboard-title">🔐 Secure Access Required</h1><p class="dashboard-subtitle">Please enter your credentials to access the dashboard</p></div>',
-            unsafe_allow_html=True)
-
+            unsafe_allow_html=True
+        )
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             st.text_input("Username", on_change=password_entered, key="username")
@@ -197,8 +392,8 @@ def check_password():
     elif not st.session_state["password_correct"]:
         st.markdown(
             '<div class="dashboard-header"><h1 class="dashboard-title">🔐 Secure Access Required</h1><p class="dashboard-subtitle">Please enter your credentials to access the dashboard</p></div>',
-            unsafe_allow_html=True)
-
+            unsafe_allow_html=True
+        )
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             st.text_input("Username", on_change=password_entered, key="username")
@@ -208,10 +403,8 @@ def check_password():
     else:
         return True
 
-
 if not check_password():
     st.stop()
-
 
 # --- File Loading Function (NEW) ---
 def load_data_file(uploaded_file):
@@ -220,21 +413,18 @@ def load_data_file(uploaded_file):
         file_name = uploaded_file.name.lower()
 
         if file_name.endswith('.csv'):
-            # Try different encodings for CSV files
             try:
                 df = pd.read_csv(uploaded_file, encoding='utf-8')
             except UnicodeDecodeError:
-                uploaded_file.seek(0)  # Reset file pointer
+                uploaded_file.seek(0)
                 try:
                     df = pd.read_csv(uploaded_file, encoding='latin-1')
                 except UnicodeDecodeError:
                     uploaded_file.seek(0)
                     df = pd.read_csv(uploaded_file, encoding='cp1252')
-
             return df, "CSV"
 
         elif file_name.endswith(('.xlsx', '.xls')):
-            # Handle Excel files
             df = pd.read_excel(uploaded_file, engine='openpyxl' if file_name.endswith('.xlsx') else 'xlrd')
             return df, "Excel"
 
@@ -246,7 +436,6 @@ def load_data_file(uploaded_file):
         st.error(f"❌ Error loading file: {str(e)}")
         return None, None
 
-
 # --- Utility Functions ---
 def simple_tokenize(text):
     if not text:
@@ -255,35 +444,35 @@ def simple_tokenize(text):
     tokens = re.findall(r'\b\w+\b', text)
     return tokens
 
-
 def clean_text(text):
+    """
+    Clean text while preserving emojis.
+    Avoid removing emoji characters (no blanket non-word removal).
+    """
     if pd.isna(text) or text is None:
         return ""
     try:
-        text = str(text).lower()
+        text = str(text)
+        # Remove URLs and emails
         text = re.sub(r'http\S+|www\S+|https\S+', '', text)
         text = re.sub(r'\S+@\S+', '', text)
-        text = re.sub(r"[^\w\s']", ' ', text)
+        # Remove standalone numbers
         text = re.sub(r'\b\d+\b', '', text)
+        # Normalize whitespace
         text = ' '.join(text.split())
         return text.strip()
-    except Exception as e:
+    except Exception:
         return ""
-
 
 def remove_stopwords(text, custom_stopwords):
     if not text or text.strip() == "":
         return ""
     try:
         tokens = simple_tokenize(text)
-        filtered_tokens = [
-            token for token in tokens
-            if token not in custom_stopwords and len(token) > 2
-        ]
+        filtered_tokens = [token for token in tokens if token not in custom_stopwords and len(token) > 2]
         return ' '.join(filtered_tokens)
-    except Exception as e:
+    except Exception:
         return text
-
 
 def analyze_textblob(text):
     try:
@@ -299,16 +488,17 @@ def analyze_textblob(text):
         else:
             sentiment = "neutral"
         return polarity, subjectivity, sentiment
-    except Exception as e:
+    except Exception:
         return 0.0, 0.0, "neutral"
 
+# Cache VADER analyzer
+_VADER = SentimentIntensityAnalyzer()
 
 def analyze_vader(text):
     try:
         if not text or text.strip() == "":
             return {'compound': 0.0, 'pos': 0.0, 'neu': 1.0, 'neg': 0.0}, "neutral"
-        analyzer = SentimentIntensityAnalyzer()
-        scores = analyzer.polarity_scores(text)
+        scores = _VADER.polarity_scores(text)
         compound = scores['compound']
         if compound >= 0.05:
             sentiment = "positive"
@@ -317,18 +507,24 @@ def analyze_vader(text):
         else:
             sentiment = "neutral"
         return scores, sentiment
-    except Exception as e:
+    except Exception:
         return {'compound': 0.0, 'pos': 0.0, 'neu': 1.0, 'neg': 0.0}, "neutral"
 
-
-def get_consensus_sentiment(textblob_sent, vader_sent):
-    if textblob_sent == vader_sent:
-        return textblob_sent
-    elif "neutral" in [textblob_sent, vader_sent]:
+def get_consensus_sentiment(textblob_sent, vader_sent, emoji_sent):
+    """
+    Enhanced consensus including emoji sentiment (majority vote).
+    """
+    sentiments = [textblob_sent, vader_sent, emoji_sent]
+    pos = sentiments.count("positive")
+    neg = sentiments.count("negative")
+    neu = sentiments.count("neutral")
+    if pos > neg and pos > neu:
+        return "positive"
+    if neg > pos and neg > neu:
+        return "negative"
+    if neu > pos and neu > neg:
         return "neutral"
-    else:
-        return "mixed"
-
+    return "mixed"
 
 def load_stopwords(custom_content=None, use_default=True):
     stopwords_set = set()
@@ -342,10 +538,9 @@ def load_stopwords(custom_content=None, use_default=True):
                 custom_words = [word.strip().lower() for word in custom_content.split('\n')]
             custom_words = [word for word in custom_words if word]
             stopwords_set.update(custom_words)
-        except Exception as e:
+        except Exception:
             pass
     return stopwords_set
-
 
 # --- Power BI Style KPI Cards ---
 def create_kpi_card(title, value, card_type="total"):
@@ -356,7 +551,6 @@ def create_kpi_card(title, value, card_type="total"):
         <p class="kpi-label">{title}</p>
     </div>
     """
-
 
 # --- Advanced Visualizations ---
 def create_sentiment_donut_chart(sentiment_counts):
@@ -393,7 +587,6 @@ def create_sentiment_donut_chart(sentiment_counts):
     )
 
     return fig
-
 
 def create_sentiment_trend_chart(df, date_column=None):
     """Create sentiment trend over time"""
@@ -432,7 +625,6 @@ def create_sentiment_trend_chart(df, date_column=None):
 
     return None
 
-
 def create_polarity_distribution(df):
     """Create polarity distribution histogram"""
     fig = make_subplots(rows=1, cols=2, subplot_titles=('TextBlob Polarity', 'VADER Compound'))
@@ -464,7 +656,6 @@ def create_polarity_distribution(df):
 
     return fig
 
-
 def create_category_sentiment_heatmap(df, category_column):
     """Create category vs sentiment heatmap"""
     if category_column != "None" and category_column in df.columns:
@@ -492,11 +683,12 @@ def create_category_sentiment_heatmap(df, category_column):
         return fig
     return None
 
-
 def create_word_frequency_chart(df):
     """Create top words frequency chart"""
     all_text = ' '.join(df['processed_text'].dropna())
     words = all_text.split()
+    if not words:
+        return None
     word_freq = pd.Series(words).value_counts().head(15)
 
     fig = go.Figure(data=[go.Bar(
@@ -519,14 +711,13 @@ def create_word_frequency_chart(df):
 
     return fig
 
-
 # --- Main Dashboard ---
 def main():
     # Dashboard Header
     st.markdown('''
     <div class="dashboard-header">
         <h1 class="dashboard-title">📊 Sentiment Analytics Dashboard</h1>
-        <p class="dashboard-subtitle">Professional sentiment analysis with interactive visualizations powered by TextBlob & VADER</p>
+        <p class="dashboard-subtitle">Professional sentiment analysis with interactive visualizations powered by TextBlob, VADER, and Enhanced Emoji Intelligence</p>
     </div>
     ''', unsafe_allow_html=True)
 
@@ -534,14 +725,12 @@ def main():
     with st.sidebar:
         st.markdown("## ⚙️ Configuration Panel")
 
-        # Updated file uploader to support both CSV and Excel
         uploaded_file = st.file_uploader(
             "📄 Upload Data File",
             type=['csv', 'xlsx', 'xls'],
             help="Select your CSV or Excel file for analysis"
         )
 
-        # File format information
         st.markdown("""
         <div class="file-upload-info">
             <strong>📋 Supported Formats:</strong><br>
@@ -562,17 +751,15 @@ def main():
         st.markdown("---")
         st.markdown("### 📊 Dashboard Features")
         st.markdown("""
-        - **Multi-format Support** (CSV/Excel)
-        - **Real-time Analysis**
-        - **Interactive Charts** 
-        - **KPI Metrics**
-        - **Category Filtering**
-        - **Export Options**
+        - Multi-format Support (CSV/Excel)
+        - TextBlob & VADER Sentiment
+        - Enhanced Emoji Intelligence (multi-emoji + normalization)
+        - Real-time Analysis & Interactive Charts
+        - KPI Metrics, Category Filtering, Export Options
         """)
 
     if uploaded_file is not None:
         try:
-            # Load data with improved file handling
             df, file_type = load_data_file(uploaded_file)
 
             if df is not None:
@@ -585,7 +772,6 @@ def main():
                 with col3:
                     st.info(f"📁 File: {uploaded_file.name}")
 
-                # Show data preview
                 with st.expander("👀 Data Preview", expanded=False):
                     st.dataframe(df.head(), use_container_width=True)
                     st.markdown(f"**Column Names:** {', '.join(df.columns.tolist())}")
@@ -594,14 +780,11 @@ def main():
             st.markdown("## 🔧 Analysis Configuration")
 
             col1, col2, col3 = st.columns(3)
-
             with col1:
                 text_column = st.selectbox("📝 Text Column", df.columns)
-
             with col2:
                 category_options = ["None"] + list(df.columns)
                 category_column = st.selectbox("📊 Category Column", category_options)
-
             with col3:
                 date_options = ["None"] + [col for col in df.columns if 'date' in col.lower() or 'time' in col.lower()]
                 date_column = st.selectbox("📅 Date Column (Optional)", date_options)
@@ -612,7 +795,6 @@ def main():
             custom_stopwords_content = None
             if stopwords_file is not None:
                 custom_stopwords_content = stopwords_file.read().decode('utf-8')
-
             stopwords_set = load_stopwords(custom_stopwords_content, use_default_stopwords)
 
             # Analysis button
@@ -625,17 +807,25 @@ def main():
                     status_text = st.empty()
 
                 try:
-                    # Analysis steps
                     status_text.text("🧹 Preprocessing text data...")
-                    progress_bar.progress(20)
-                    df['cleaned_text'] = df[text_column].apply(clean_text)
+                    progress_bar.progress(15)
+                    df['original_text'] = df[text_column].astype(str)
+                    df['cleaned_text'] = df['original_text'].apply(clean_text)
 
                     status_text.text("🛑 Removing stopwords...")
-                    progress_bar.progress(40)
+                    progress_bar.progress(30)
                     df['processed_text'] = df['cleaned_text'].apply(lambda x: remove_stopwords(x, stopwords_set))
 
+                    status_text.text("🎭 Analyzing emojis...")
+                    progress_bar.progress(45)
+                    emoji_results = df['original_text'].apply(analyze_emoji_sentiment)
+                    df['emoji_score'] = [r[0] for r in emoji_results]
+                    df['emoji_count'] = [r[1] for r in emoji_results]
+                    df['emoji_sentiment'] = [r[2] for r in emoji_results]
+                    df['emojis_found'] = [r[3] for r in emoji_results]
+
                     status_text.text("🔍 Running TextBlob analysis...")
-                    progress_bar.progress(60)
+                    progress_bar.progress(65)
                     textblob_results = df['processed_text'].apply(analyze_textblob)
                     df['textblob_polarity'] = [r[0] for r in textblob_results]
                     df['textblob_subjectivity'] = [r[1] for r in textblob_results]
@@ -650,11 +840,17 @@ def main():
                     df['vader_negative'] = [r[0]['neg'] for r in vader_results]
                     df['vader_sentiment'] = [r[1] for r in vader_results]
 
-                    status_text.text("🤝 Calculating consensus...")
+                    status_text.text("🤝 Calculating consensus (Text + Emoji)...")
                     progress_bar.progress(90)
                     df['consensus_sentiment'] = df.apply(
-                        lambda row: get_consensus_sentiment(row['textblob_sentiment'], row['vader_sentiment']), axis=1
+                        lambda row: get_consensus_sentiment(
+                            row['textblob_sentiment'], row['vader_sentiment'], row['emoji_sentiment']
+                        ),
+                        axis=1
                     )
+
+                    # Calculate emoji statistics
+                    emoji_stats = get_emoji_statistics(df)
 
                     progress_bar.progress(100)
                     status_text.text("✅ Analysis completed successfully!")
@@ -665,8 +861,8 @@ def main():
                     st.session_state['category_column'] = category_column
                     st.session_state['date_column'] = date_column
                     st.session_state['file_type'] = file_type
+                    st.session_state['emoji_stats'] = emoji_stats
 
-                    # Clear progress indicators
                     progress_container.empty()
                     st.balloons()
 
@@ -685,11 +881,11 @@ def main():
         category_column = st.session_state['category_column']
         date_column = st.session_state['date_column']
         file_type = st.session_state.get('file_type', 'Unknown')
+        emoji_stats = st.session_state.get('emoji_stats', None)
 
         # Filters Section
         st.markdown("## 🔍 Dashboard Filters")
-
-        filter_cols = st.columns(4)
+        filter_cols = st.columns(5)
 
         with filter_cols[0]:
             sentiment_filter = st.multiselect(
@@ -719,6 +915,17 @@ def main():
             )
 
         with filter_cols[3]:
+            emoji_count_min = 0
+            emoji_count_max = int(df['emoji_count'].max()) if 'emoji_count' in df.columns else 0
+            emoji_count_range = st.slider(
+                "Emoji Count",
+                min_value=0,
+                max_value=emoji_count_max if emoji_count_max > 0 else 10,
+                value=(0, emoji_count_max if emoji_count_max > 0 else 10),
+                step=1
+            )
+
+        with filter_cols[4]:
             top_n_records = st.selectbox(
                 "Records to Display",
                 options=[100, 500, 1000, 5000, len(df)],
@@ -729,79 +936,84 @@ def main():
         filtered_df = df[
             (df['consensus_sentiment'].isin(sentiment_filter)) &
             (df['textblob_polarity'] >= polarity_range[0]) &
-            (df['textblob_polarity'] <= polarity_range[1])
-            ].head(top_n_records)
+            (df['textblob_polarity'] <= polarity_range[1]) &
+            (df['emoji_count'] >= emoji_count_range[0]) &
+            (df['emoji_count'] <= emoji_count_range[1])
+        ].head(top_n_records)
 
         if category_filter and category_column != "None":
             filtered_df = filtered_df[filtered_df[category_column].isin(category_filter)]
 
         # KPI Cards Section
         st.markdown("## 📊 Key Performance Indicators")
-
         sentiment_counts = filtered_df['consensus_sentiment'].value_counts()
 
-        kpi_cols = st.columns(4)
-
+        kpi_cols = st.columns(5)
         with kpi_cols[0]:
             st.markdown(create_kpi_card("Total Records", len(filtered_df), "total"), unsafe_allow_html=True)
-
         with kpi_cols[1]:
             st.markdown(create_kpi_card("Positive Sentiment", sentiment_counts.get('positive', 0), "positive"),
                         unsafe_allow_html=True)
-
         with kpi_cols[2]:
             st.markdown(create_kpi_card("Negative Sentiment", sentiment_counts.get('negative', 0), "negative"),
                         unsafe_allow_html=True)
-
         with kpi_cols[3]:
             neutral_mixed = sentiment_counts.get('neutral', 0) + sentiment_counts.get('mixed', 0)
             st.markdown(create_kpi_card("Neutral/Mixed", neutral_mixed, "neutral"), unsafe_allow_html=True)
+        with kpi_cols[4]:
+            avg_emoji_score = filtered_df['emoji_score'].mean() if 'emoji_score' in filtered_df.columns else 0.0
+            st.markdown(create_kpi_card("Avg Emoji Score", int(avg_emoji_score * 1000), "total"), unsafe_allow_html=True)
 
         # Additional KPI metrics
         kpi_cols2 = st.columns(4)
-
         with kpi_cols2[0]:
             avg_polarity = filtered_df['textblob_polarity'].mean()
             st.metric("Avg Polarity", f"{avg_polarity:.3f}", delta=f"{avg_polarity:.3f}")
-
         with kpi_cols2[1]:
             avg_subjectivity = filtered_df['textblob_subjectivity'].mean()
             st.metric("Avg Subjectivity", f"{avg_subjectivity:.3f}")
-
         with kpi_cols2[2]:
             avg_vader = filtered_df['vader_compound'].mean()
             st.metric("Avg VADER Score", f"{avg_vader:.3f}", delta=f"{avg_vader:.3f}")
-
         with kpi_cols2[3]:
-            positive_rate = (sentiment_counts.get('positive', 0) / len(filtered_df) * 100) if len(
-                filtered_df) > 0 else 0
+            positive_rate = (sentiment_counts.get('positive', 0) / len(filtered_df) * 100) if len(filtered_df) > 0 else 0
             st.metric("Positive Rate", f"{positive_rate:.1f}%")
+
+        # Optional Emoji Overview
+        if emoji_stats:
+            st.markdown("## 🎭 Emoji Overview")
+            ecols = st.columns(5)
+            with ecols[0]:
+                st.metric("Total Emojis", emoji_stats['total_emojis'])
+            with ecols[1]:
+                st.metric("Unique Emojis", len(emoji_stats['unique_emojis']))
+            with ecols[2]:
+                st.metric("Texts with Emojis", emoji_stats['texts_with_emojis'])
+            with ecols[3]:
+                st.metric("Avg Emojis/Text", f"{emoji_stats['avg_emojis_per_text']:.2f}")
+            with ecols[4]:
+                mc = emoji_stats['most_common_emoji'][0] if emoji_stats['most_common_emoji'] else "N/A"
+                st.metric("Most Used Emoji", mc)
 
         # Charts Section
         st.markdown("## 📈 Interactive Visualizations")
-
-        # Row 1: Donut Chart and Trend
         chart_cols1 = st.columns(2)
-
         with chart_cols1[0]:
             if len(sentiment_counts) > 0:
                 fig_donut = create_sentiment_donut_chart(sentiment_counts)
                 st.plotly_chart(fig_donut, use_container_width=True)
-
         with chart_cols1[1]:
             if date_column:
                 fig_trend = create_sentiment_trend_chart(filtered_df, date_column)
                 if fig_trend:
                     st.plotly_chart(fig_trend, use_container_width=True)
             else:
-                # Word frequency chart as alternative
                 fig_words = create_word_frequency_chart(filtered_df)
-                st.plotly_chart(fig_words, use_container_width=True)
+                if fig_words:
+                    st.plotly_chart(fig_words, use_container_width=True)
 
-        # Row 2: Polarity Distribution
         st.plotly_chart(create_polarity_distribution(filtered_df), use_container_width=True)
 
-        # Row 3: Category Heatmap (if applicable)
         if category_column != "None" and category_column in filtered_df.columns:
             fig_heatmap = create_category_sentiment_heatmap(filtered_df, category_column)
             if fig_heatmap:
@@ -809,10 +1021,16 @@ def main():
 
         # Data Table Section
         st.markdown("## 📋 Detailed Data View")
-
-        display_columns = [text_column, 'consensus_sentiment', 'textblob_polarity', 'vader_compound']
+        display_columns = [text_column, 'consensus_sentiment', 'textblob_polarity', 'vader_compound',
+                           'emoji_score', 'emoji_count']
         if category_column != "None":
             display_columns.insert(1, category_column)
+
+        # Emojis in a readable form
+        if 'emojis_found' in filtered_df.columns:
+            filtered_df = filtered_df.copy()
+            filtered_df['emojis_display'] = filtered_df['emojis_found'].apply(lambda x: ' '.join(x) if x else '')
+            display_columns.append('emojis_display')
 
         st.dataframe(
             filtered_df[display_columns].head(50),
@@ -822,7 +1040,6 @@ def main():
 
         # Export Section
         st.markdown("## 📥 Export Dashboard Data")
-
         export_cols = st.columns(3)
 
         with export_cols[0]:
@@ -838,12 +1055,14 @@ def main():
         with export_cols[1]:
             summary_stats = pd.DataFrame({
                 'Metric': ['Total Records', 'Positive', 'Negative', 'Neutral', 'Mixed',
-                           'Avg Polarity', 'Avg Subjectivity', 'Avg VADER'],
+                           'Avg Polarity', 'Avg Subjectivity', 'Avg VADER', 'Avg Emoji Score', 'Total Emojis'],
                 'Value': [len(filtered_df), sentiment_counts.get('positive', 0),
                           sentiment_counts.get('negative', 0), sentiment_counts.get('neutral', 0),
                           sentiment_counts.get('mixed', 0), f"{filtered_df['textblob_polarity'].mean():.3f}",
                           f"{filtered_df['textblob_subjectivity'].mean():.3f}",
-                          f"{filtered_df['vader_compound'].mean():.3f}"]
+                          f"{filtered_df['vader_compound'].mean():.3f}",
+                          f"{filtered_df['emoji_score'].mean():.3f}" if 'emoji_score' in filtered_df.columns else "0.000",
+                          int(emoji_stats['total_emojis']) if emoji_stats else 0]
             })
             csv_stats = summary_stats.to_csv(index=False)
             st.download_button(
@@ -871,10 +1090,9 @@ def main():
     st.markdown("""
     <div style='text-align: center; color: #666; padding: 2rem;'>
         <p>📊 Professional Sentiment Analytics Dashboard | Powered by Streamlit & Plotly</p>
-        <p>Built with ❤️ for data-driven insights | Supports CSV & Excel formats</p>
+        <p>Built with ❤️ for data-driven insights | Supports CSV & Excel formats | Enhanced Emoji Sentiment</p>
     </div>
     """, unsafe_allow_html=True)
-
 
 if __name__ == "__main__":
     main()
